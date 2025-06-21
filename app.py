@@ -1,8 +1,7 @@
 from flask import Flask, render_template, jsonify
 import requests
-from bs4 import BeautifulSoup
-import json
 from datetime import datetime
+import json
 
 app = Flask(__name__)
 
@@ -34,23 +33,25 @@ def alertas():
 
 @app.route("/atualizar")
 def atualizar():
-    url = "https://www.marinha.mil.br/chm/dados-do-segnav/avisos-navarea"
+    url = "https://www.marinha.mil.br/chm/sites/www.marinha.mil.br.chm/files/opt/avradio_318.json"
+
     try:
         response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-        itens = soup.select(".field__item")
+        alertas_raw = response.json()
 
         alertas = []
-        for i, item in enumerate(itens[:5]):
-            texto = item.get_text(strip=True, separator=" ")
-            titulo = f"NAVAREA V {i+1:03}/2024"
+        for i, item in enumerate(alertas_raw.get("avisos", [])[:5]):
+            texto = item.get("descricao", "")
+            titulo = item.get("numero", f"NAVAREA {i+1:03}")
             descricao = texto[:200] + "..." if len(texto) > 200 else texto
+
             poligono = simular_coordenadas(i)
             centro = [sum(p[0] for p in poligono)/4, sum(p[1] for p in poligono)/4]
+
             alerta = {
                 "titulo": titulo,
                 "descricao": descricao,
-                "data": datetime.now().isoformat(),
+                "data": item.get("data", datetime.now().isoformat()),
                 "centro": centro,
                 "cor": "#cc0000",
                 "poligono": poligono
