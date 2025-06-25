@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Plano de Viagem</title>
+</head>
+<body>
+    <h1>Plano de Viagem - NAVAREA</h1>
+    <button onclick="atualizar()">Atualizar Alertas NAVAREA/SAR</button>
+    <script>
+        function atualizar() {
+            fetch('/atualizar')
+                .then(resp => resp.json())
+                .then(data => alert("Atualização concluída!"));
+        }
+    </script>
+</body>
+</html>
