@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+
+<html lang="pt-br">
+<head>
+<meta charset="utf-8"/>
+<title>NAVAREA - Plano de Viagem</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
+<style>
+    .label-rumo {
+      pointer-events: none;
+    }
+  </style>
+<style>
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    color: #2F3E4D;
+  }
+
+  h1 {
+    color: #003B5C;
+  }
+
+  table thead tr {
+    background-color: #E6F0F6;
+    color: #003B5C;
+  }
+
+  table tbody tr {
+    border-bottom: 1px solid #D9E2EC;
+  }
+
+  table td {
+    color: #2F3E4D;
+  }
+
+  input, select {
+    border-color: #D9E2EC;
+  }
+
+  button#btnWaypoint {
+    background-color: #003B5C;
+  }
+
+  button#btnWaypoint:hover {
+    background-color: #002F4A;
+  }
+
+  button[onclick*='exportarWaypoints'] {
+    background-color: #28A745;
+  }
+
+  button[onclick*='exportarWaypoints']:hover {
+    background-color: #218838;
+  }
+</style><script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script><style>
+td .editarWaypoint {
+  margin-left: 24px;
+  display: inline-block;
+}
+td .removerWaypoint {
+  margin-left: 24px;
+  display: inline-block;
+}
+</style><style>
+td.latlon {
+    white-space: nowrap;
+}
+td.icone {
+    width: 1%;
+    text-align: center;
+    vertical-align: middle;
+}
+</style><style>
+td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+td.icone {
+  width: 1%;
+  text-align: center;
+  vertical-align: middle;
+}
+</style></head>
+<body class="bg-blue-50 text-gray-800">
+<div class="flex h-screen">
+<div class="w-2/3 h-full relative" id="mapa">
+<div id="coordenadasMouse" style="position:absolute;top:10px;left:60px;background:white;padding:4px 8px;border-radius:4px;font-size:12px;z-index:999;border:1px solid #ccc;">Lat: -- | Lon: --</div>
+<svg class="absolute top-0 left-0 w-full h-full pointer-events-none" id="navareaLayer"></svg>
+</div>
+<div class="w-1/3 p-4 bg-white shadow overflow-y-auto">
+<div class="flex justify-between items-center mb-4">
+  <h1 class="text-2xl font-bold">Plano de Viagem</h1>
+  <div class="flex gap-2">
+    
+    <button onclick="iniciarCriacaoDerrota()" title="Criar Derrota"
+      class="w-8 h-8 rounded-full bg-[#1b3a5b] hover:bg-[#10253b] text-white text-lg font-bold flex items-center justify-center">
+      +
+    </button>
+    <button onclick="limparDerrota()" title="Limpar Derrota"
+      class="w-8 h-8 rounded-full bg-[#6c7a89] hover:bg-[#5c6975] text-white text-lg font-bold flex items-center justify-center">
+      ×
+    </button>
+    
+  </div>
+</div>
+<div class="flex flex-col gap-2 mb-4">
+<input class="border p-2 rounded w-full" id="nome" placeholder="Nome do Waypoint" type="text"/>
+<div class="flex gap-1">
+<input class="border p-1 rounded w-2/5" id="latG" placeholder="Lat º" type="number"/>
+<input class="border p-1 rounded w-2/5" id="latM" placeholder="Lat '" type="text"/>
+<select class="border p-1 rounded w-1/5" id="latH">
+<option>S</option>
+<option>N</option>
+</select>
+</div>
+<div class="flex gap-1">
+<input class="border p-1 rounded w-2/5" id="lonG" placeholder="Lon º" type="number"/>
+<input class="border p-1 rounded w-2/5" id="lonM" placeholder="Lon '" type="text"/>
+<select class="border p-1 rounded w-1/5" id="lonH">
+<option>W</option>
+<option>E</option>
+</select>
+</div>
+<button class="bg-blue-600 text-white px-4 py-2 rounded w-full" id="btnWaypoint" onclick="adicionarWaypoint()">Adicionar</button>
+<button class="bg-yellow-500 text-white px-4 py-2 rounded w-full mb-2" onclick="atualizarAlertas()">
+  Atualizar Alertas NAVAREA/SAR
+</button>
+<div class="flex gap-2">
+<input class="border p-2 rounded w-1/2" id="velocidade" oninput="calcularETA()" placeholder="Velocidade (kn)" type="number"/>
+<input class="border p-2 rounded w-1/2" id="etd" onchange="calcularETA()" type="datetime-local"/>
+</div>
+</div>
+<table class="table-auto w-full text-sm mb-4">
+<thead>
+<tr class="bg-blue-200 text-left">
+<th class="px-2 py-1">#</th>
+<th class="px-2 py-1">Nome do Waypoint</th>
+<th class="px-2 py-1">Latitude</th>
+<th class="px-2 py-1">Longitude</th>
+<th class="px-2 py-1">Editar</th>
+<th class="px-2 py-1">Remover</th>
+</tr>
+</thead>
+<tbody class="bg-white" id="tabelaWaypoints"></tbody>
+</table>
+<button class="bg-green-600 text-white px-4 py-2 rounded w-full" onclick="exportarTabelaEMapaPDF()">Exportar Plano de Viagem</button>
+<div class="hidden" id="resultadoExportacao" style="display: none;">
+<div class="p-4 overflow-x-auto" id="tabelaExportada"></div>
+<div class="h-[70vh]" id="mapaExportado"></div>
+</div>
+<div class="mt-4 font-medium whitespace-pre-line" id="etaResultado"></div>
+</div>
+</div>
+<script>
+  const waypoints = [];
+  let editandoIndex = null;
+  let marcadores = [];
+  let labelsRota = [];
+  window.mapa = L.map('mapa').setView([-22.9, -43.2], 6);
+
+L.marker([-25.328611111111112, -42.69222222222222], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-67", { permanent: true, direction: 'right' });
+
+L.marker([-25.021944444444443, -42.66722222222222], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-68", { permanent: true, direction: 'right' });
+
+L.marker([-25.65694444444444, -42.85888888888889], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-69", { permanent: true, direction: 'right' });
+
+L.marker([-24.95111111111111, -42.467777777777776], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-70", { permanent: true, direction: 'right' });
+
+L.marker([-24.77611111111111, -42.72027777777778], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-71", { permanent: true, direction: 'right' });
+
+L.marker([-24.648611111111112, -42.51444444444444], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-74", { permanent: true, direction: 'right' });
+
+L.marker([-24.78805555555556, -42.509166666666665], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-75", { permanent: true, direction: 'right' });
+
+L.marker([-24.6875, -42.50527777777778], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-76", { permanent: true, direction: 'right' });
+
+L.marker([-24.635555555555555, -42.41166666666666], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-77", { permanent: true, direction: 'right' });
+
+L.marker([-25.26638888888889, -45.25277777777778], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("Plataforma Merluza", { permanent: true, direction: 'right' });
+
+L.marker([-24.353055555555557, -44.382777777777775], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("Plataforma Mexilhão", { permanent: true, direction: 'right' });
+
+
+L.marker([-25.39361111111111, -42.76138888888889], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Paraty", { permanent: true, direction: 'right' });
+
+L.marker([-24.541666666666668, -42.134166666666665], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Pioneiro de Libra", { permanent: true, direction: 'right' });
+
+L.marker([-25.490277777777777, -42.78111111111111], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Saquarema", { permanent: true, direction: 'right' });
+
+L.marker([-24.629722222222224, -42.264722222222225], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Sepetiba", { permanent: true, direction: 'right' });
+
+L.marker([-25.798333333333336, -43.26277777777778], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de São Paulo", { permanent: true, direction: 'right' });
+
+L.marker([-25.601944444444445, -42.82055555555556], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-66", { permanent: true, direction: 'right' });
+
+
+L.marker([-24.591666666666665, -42.56722222222223], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Almirante Barroso", { permanent: true, direction: 'right' });
+
+L.marker([-25.54388888888889, -42.84], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Angra dos Reis", { permanent: true, direction: 'right' });
+
+L.marker([-25.22611111111111, -42.57], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Carioca", { permanent: true, direction: 'right' });
+
+L.marker([-24.301111111111112, -42.71416666666667], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Santos", { permanent: true, direction: 'right' });
+
+L.marker([-24.58277777777778, -42.25611111111111], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Guanabara", { permanent: true, direction: 'right' });
+
+L.marker([-25.671944444444446, -43.20611111111111], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Ilhabela", { permanent: true, direction: 'right' });
+
+L.marker([-25.14, -42.94416666666666], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Itaguaí", { permanent: true, direction: 'right' });
+
+L.marker([-25.202777777777776, -42.87861111111111], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Mangaratiba", { permanent: true, direction: 'right' });
+
+L.marker([-25.447777777777777, -42.753055555555555], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Maricá", { permanent: true, direction: 'right' });
+
+
+L.marker([-22.46611111111111, -40.46888888888889], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("PCH-2", { permanent: true, direction: 'right' });
+
+L.marker([-22.37472222222222, -40.4175], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("PGP-1", { permanent: true, direction: 'right' });
+
+L.marker([-22.43861111111111, -40.42444444444444], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("PNA-1", { permanent: true, direction: 'right' });
+
+L.marker([-22.450833333333332, -40.41166666666666], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("PNA-2", { permanent: true, direction: 'right' });
+
+L.marker([-22.171111111111113, -40.12166666666667], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("PRA-1", { permanent: true, direction: 'right' });
+
+
+L.marker([-22.42638888888889, -39.95805555555556], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-53", { permanent: true, direction: 'right' });
+
+L.marker([-21.96833333333333, -39.824444444444445], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-54", { permanent: true, direction: 'right' });
+
+L.marker([-21.993055555555557, -39.739444444444445], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-55", { permanent: true, direction: 'right' });
+
+L.marker([-22.62388888888889, -39.989444444444445], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-56", { permanent: true, direction: 'right' });
+
+L.marker([-21.239166666666666, -40.0475], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-57", { permanent: true, direction: 'right' });
+
+L.marker([-21.21388888888889, -39.99722222222222], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-58", { permanent: true, direction: 'right' });
+
+L.marker([-21.939722222222223, -39.78527777777778], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-62", { permanent: true, direction: 'right' });
+
+L.marker([-22.43305555555556, -40.480555555555554], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("PCH-1", { permanent: true, direction: 'right' });
+
+
+L.marker([-22.556944444444444, -40.120555555555555], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-38", { permanent: true, direction: 'right' });
+
+L.marker([-22.546944444444446, -40.06722222222223], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-40", { permanent: true, direction: 'right' });
+
+L.marker([-22.55, -40.25944444444445], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-43", { permanent: true, direction: 'right' });
+
+L.marker([-22.34563, -40.192969999999995], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-47", { permanent: true, direction: 'right' });
+
+L.marker([-22.663888888888888, -40.24], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-48", { permanent: true, direction: 'right' });
+
+L.marker([-22.634166666666665, -40.093611111111116], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-51", { permanent: true, direction: 'right' });
+
+L.marker([-21.906388888888888, -39.736111111111114], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-52", { permanent: true, direction: 'right' });
+
+
+L.marker([-22.358980000000003, -40.088750000000005], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-20", { permanent: true, direction: 'right' });
+
+L.marker([-22.109416666666668, -39.91661111111111], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-25", { permanent: true, direction: 'right' });
+
+L.marker([-22.438027777777776, -40.065999999999995], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-35", { permanent: true, direction: 'right' });
+
+L.marker([-22.48638888888889, -40.09722222222222], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-37", { permanent: true, direction: 'right' });
+
+
+L.marker([-21.336555555555556, -40.05933333333333], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Anchieta", { permanent: true, direction: 'right' });
+
+L.marker([-22.394694444444443, -40.10788888888889], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Anita Garibaldi", { permanent: true, direction: 'right' });
+
+L.marker([-22.46301, -40.057269999999995], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Anna Néry", { permanent: true, direction: 'right' });
+
+L.marker([-22.952469999999998, -40.7252], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Campos dos Goytacazes", { permanent: true, direction: 'right' });
+
+L.marker([-22.49577, -39.93687], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Cidade de Niterói", { permanent: true, direction: 'right' });
+
+L.marker([-22.16061, -40.14599], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FSO Cidade de Macaé", { permanent: true, direction: 'right' });
+
+L.marker([-22.5734, -40.52754], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-09", { permanent: true, direction: 'right' });
+
+L.marker([-22.42838, -40.02868], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-18", { permanent: true, direction: 'right' });
+
+L.marker([-22.39262, -40.054379999999995], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("P-19", { permanent: true, direction: 'right' });
+
+
+L.marker([-21.239, -39.95727777777778], {
+  icon: L.icon({
+    iconUrl: '/static/plataforma-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
+}).addTo(mapa).bindTooltip("FPSO Capixaba", { permanent: true, direction: 'right' });
+
+
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(mapa);
+
+  
+
+  const seamark = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="http://www.openseamap.org">OpenSeaMap</a>'
+  });
+  seamark.addTo(mapa);
+
+  const baseMaps = {
+    "OpenStreetMap": osm,
+    
+  };
+
+  const overlayMaps = {
+    "Sinalização Marítima (OpenSeaMap)": seamark
+  };
+
+  L.control.layers(baseMaps, overlayMaps).addTo(mapa);
+
+  const rotaLayer = L.polyline([], { color: '#228B22', dashArray: '5, 10' }).addTo(mapa);
+
+  function formatarCoord(g, m, h) {
+    return `${String(g).padStart(2, '0')}º ${parseFloat(m).toFixed(3).padStart(6, '0')}' ${h}`;
+  }
+
+  function paraDecimal(g, m, h) {
+    let valor = parseFloat(g) + parseFloat(m) / 60;
+    return (h === 'S' || h === 'W') ? -valor : valor;
+  }
+
+  function calcularRumo(lat1, lon1, lat2, lon2) {
+    const toRad = Math.PI / 180;
+    const toDeg = 180 / Math.PI;
+    const dLon = (lon2 - lon1) * toRad;
+
+    const y = Math.sin(dLon) * Math.cos(lat2 * toRad);
+    const x = Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) -
+              Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos(dLon);
+    let brng = Math.atan2(y, x) * toDeg;
+    return (brng + 360) % 360;
+  }
+
+  function calcularDistancia() {
+    let total = 0;
+    for (let i = 1; i < waypoints.length; i++) {
+      total += mapa.distance(
+        L.latLng(waypoints[i - 1].lat, waypoints[i - 1].lon),
+        L.latLng(waypoints[i].lat, waypoints[i].lon)
+      ) / 1852;
+    }
+    return total;
+  }
+
+  function calcularETA() {
+    const vel = parseFloat(document.getElementById('velocidade').value);
+    const etd = document.getElementById('etd').value;
+    const resultado = document.getElementById('etaResultado');
+    resultado.innerText = '';
+
+    if (!etd || isNaN(vel) || vel <= 0 || waypoints.length < 2) return;
+
+    const distancia = calcularDistancia();
+    const horas = distancia / vel;
+    const etdDate = new Date(etd);
+    const etaDate = new Date(etdDate.getTime() + horas * 3600000);
+
+    resultado.innerText =
+      `Distância total: ${distancia.toFixed(2)} MN\nETA: ${etaDate.toLocaleString('pt-BR')}`;
+  }
+
+  function adicionarWaypoint() {
+    const nome = document.getElementById('nome').value;
+    const latG = +document.getElementById('latG').value;
+    const latM = +document.getElementById('latM').value;
+    const latH = document.getElementById('latH').value;
+    const lonG = +document.getElementById('lonG').value;
+    const lonM = +document.getElementById('lonM').value;
+    const lonH = document.getElementById('lonH').value;
+    const lat = paraDecimal(latG, latM, latH);
+    const lon = paraDecimal(lonG, lonM, lonH);
+    const latStr = formatarCoord(latG, latM, latH);
+    const lonStr = formatarCoord(lonG, lonM, lonH);
+
+    if (editandoIndex !== null) {
+      waypoints[editandoIndex] = { nome, lat, lon, latStr, lonStr };
+      document.getElementById('btnWaypoint').innerText = 'Adicionar';
+      editandoIndex = null;
+    } else {
+      waypoints.push({ nome, lat, lon, latStr, lonStr });
+    }
+
+    atualizarTabela();
+    desenharRota();
+    limparCampos();
+    calcularETA();
+  }
+
+  function limparCampos() {
+    document.getElementById('nome').value = '';
+    document.getElementById('latG').value = '';
+    document.getElementById('latM').value = '';
+    document.getElementById('latH').value = 'S';
+    document.getElementById('lonG').value = '';
+    document.getElementById('lonM').value = '';
+    document.getElementById('lonH').value = 'W';
+  }
+
+  function editarWaypoint(index) {
+    const wp = waypoints[index];
+    document.getElementById('nome').value = wp.nome;
+    document.getElementById('latG').value = Math.floor(Math.abs(wp.lat));
+    document.getElementById('latM').value = ((Math.abs(wp.lat) % 1) * 60).toFixed(3);
+    document.getElementById('latH').value = wp.lat >= 0 ? 'N' : 'S';
+    document.getElementById('lonG').value = Math.floor(Math.abs(wp.lon));
+    document.getElementById('lonM').value = ((Math.abs(wp.lon) % 1) * 60).toFixed(3);
+    document.getElementById('lonH').value = wp.lon >= 0 ? 'E' : 'W';
+
+    editandoIndex = index;
+    document.getElementById('btnWaypoint').innerText = 'Salvar';
+  }
+
+  function removerWaypoint(index) {
+    waypoints.splice(index, 1);
+    atualizarTabela();
+    desenharRota();
+    calcularETA();
+  }
+
+  function atualizarTabela() {
+    const tabela = document.getElementById('tabelaWaypoints');
+    tabela.innerHTML = '';
+    waypoints.forEach((wp, i) => {
+      tabela.innerHTML += `
+        <tr>
+          <td class="px-2 py-1">${i + 1}</td>
+          <td class="px-2 py-1">${wp.nome}</td>
+          <td class="px-2 py-1">${wp.latStr}</td>
+          <td class="px-2 py-1">${wp.lonStr}</td>
+          <td class="px-2 py-1 text-blue-600 cursor-pointer" onclick="editarWaypoint(${i})">✎</td>
+          <td class="px-2 py-1 text-red-600 cursor-pointer" onclick="removerWaypoint(${i})">✕</td>
+        </tr>
+      `;
+    });
+  }
+
+  function desenharRota() {
+    rotaLayer.setLatLngs(waypoints.map(wp => [wp.lat, wp.lon]));
+
+    marcadores.forEach(m => mapa.removeLayer(m));
+    labelsRota.forEach(l => mapa.removeLayer(l));
+    marcadores = [];
+    labelsRota = [];
+
+    marcadores = waypoints.map(wp => {
+      const marker = L.circleMarker([wp.lat, wp.lon], {
+        radius: 6, color: '#228B22', fillColor: '#228B22', fillOpacity: 1
+      }).bindTooltip(wp.nome, { permanent: true, direction: 'top' }).addTo(mapa);
+      return marker;
+    });
+
+    for (let i = 1; i < waypoints.length; i++) {
+      const wp1 = waypoints[i - 1];
+      const wp2 = waypoints[i];
+
+      const latlng1 = L.latLng(wp1.lat, wp1.lon);
+      const latlng2 = L.latLng(wp2.lat, wp2.lon);
+
+      const distancia = (mapa.distance(latlng1, latlng2) / 1852).toFixed(2);
+      const rumo = calcularRumo(wp1.lat, wp1.lon, wp2.lat, wp2.lon).toFixed(0);
+
+      const meioLat = (wp1.lat + wp2.lat) / 2;
+      const meioLon = (wp1.lon + wp2.lon) / 2;
+
+      const label = L.marker([meioLat, meioLon], {
+        icon: L.divIcon({
+          className: 'label-rumo',
+          html: `<div class="bg-white bg-opacity-80 border border-gray-400 rounded px-2 py-1 text-xs shadow">
+                  ${distancia} MN<br>${rumo}º
+                 </div>`,
+          iconSize: [60, 30],
+          iconAnchor: [30, 15]
+        })
+      }).addTo(mapa);
+
+      labelsRota.push(label);
+    }
+
+    if (waypoints.length === 1) {
+      mapa.setView([waypoints[0].lat, waypoints[0].lon], 10);
+    } else if (waypoints.length > 1) {
+      const bounds = L.latLngBounds(waypoints.map(wp => [wp.lat, wp.lon]));
+      mapa.fitBounds(bounds, { padding: [30, 30] });
+    }
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+async function exportarTabelaEMapaPDF() {
+  const { jsPDF } = window.jspdf;
+  const mapaDiv = document.createElement('div');
+  mapaDiv.style.width = '600px';
+  mapaDiv.style.height = '350px';
+  mapaDiv.style.position = 'absolute';
+  mapaDiv.style.top = '-10000px';
+  document.body.appendChild(mapaDiv);
+
+  if (waypoints.length < 2) {
+    alert("Adicione pelo menos dois waypoints.");
+    return;
+  }
+
+  let totalDist = 0;
+  let tempoAcumulado = 0;
+  let vel = parseFloat(document.getElementById('velocidade').value);
+  if (isNaN(vel) || vel <= 0) vel = 10;
+  let etdInput = document.getElementById("etd").value;
+  let etd = etdInput ? new Date(etdInput) : new Date();
+
+  const rows = [];
+  let etaFinalStr = "-";
+
+  for (let i = 0; i < waypoints.length; i++) {
+    const wp = waypoints[i];
+    let dist = "", rumo = "", etaStr = "-";
+
+    if (i > 0) {
+      dist = (mapa.distance(
+        L.latLng(waypoints[i - 1].lat, waypoints[i - 1].lon),
+        L.latLng(wp.lat, wp.lon)) / 1852).toFixed(2);
+      rumo = calcularRumo(waypoints[i - 1].lat, waypoints[i - 1].lon, wp.lat, wp.lon).toFixed(0);
+      tempoAcumulado += parseFloat(dist) / vel;
+      totalDist += parseFloat(dist);
+    }
+
+    if (!isNaN(etd)) {
+      const eta = new Date(etd.getTime() + tempoAcumulado * 3600000);
+      if (i > 0) etaStr = eta.toLocaleString('pt-BR');
+      if (i === waypoints.length - 1) etaFinalStr = etaStr;
+    }
+
+    rows.push([
+      (i + 1).toString(),
+      wp.nome,
+      wp.latStr,
+      wp.lonStr,
+      dist,
+      rumo,
+      etaStr
+    ]);
+  }
+
+  // Renderizar mapa
+  if (window.mapaExportado) mapaExportado.remove();
+  window.mapaExportado = L.map(mapaDiv).setView([waypoints[0].lat, waypoints[0].lon], 6);
+  
+  
+  // Adiciona polyline e marcadores com rótulo
+  const polyline = L.polyline(waypoints.map(w => [w.lat, w.lon]), { color: '#228B22' }).addTo(mapaExportado);
+  waypoints.forEach((wp, idx) => {
+    L.circleMarker([wp.lat, wp.lon], {
+      radius: 5, color: '#228B22', fillColor: '#228B22', fillOpacity: 1
+    }).addTo(mapaExportado)
+    .bindTooltip((idx+1) + ". " + wp.nome, { permanent: true, direction: 'right', offset: [8, 0], className: 'label-wp' })
+    .openTooltip();
+  });
+
+  // Adiciona vetores entre pontos com distância e rumo
+  for (let i = 1; i < waypoints.length; i++) {
+    const latlngA = L.latLng(waypoints[i - 1].lat, waypoints[i - 1].lon);
+    const latlngB = L.latLng(waypoints[i].lat, waypoints[i].lon);
+    const meioLat = (latlngA.lat + latlngB.lat) / 2;
+    const meioLon = (latlngA.lng + latlngB.lng) / 2;
+    const distNM = (mapa.distance(latlngA, latlngB) / 1852).toFixed(1);
+    const rumo = calcularRumo(latlngA.lat, latlngA.lng, latlngB.lat, latlngB.lng).toFixed(0);
+
+    L.polyline([latlngA, latlngB], { color: 'blue', dashArray: '4 4' }).addTo(mapaExportado);
+    L.marker([meioLat, meioLon], {
+      icon: L.divIcon({
+        className: 'label-rumo',
+        html: `<div style='font-size:10px; color:#004;'>${distNM} MN / ${rumo}°</div>`
+      })
+    }).addTo(mapaExportado);
+  }
+
+  waypoints.forEach(wp => {
+    L.circleMarker([wp.lat, wp.lon], {
+      radius: 5, color: '#228B22', fillColor: '#228B22', fillOpacity: 1
+    }).addTo(mapaExportado);
+  });
+  if (waypoints.length > 1) {
+    const bounds = L.latLngBounds(waypoints.map(w => [w.lat, w.lon]));
+    mapaExportado.fitBounds(bounds, { padding: [30, 30] });
+  }
+
+  setTimeout(() => {
+    html2canvas(mapaDiv, {scale: 2, useCORS: true}).then(canvas => {
+      const doc = new jsPDF("p", "mm", "a4");
+      doc.setFontSize(10);
+
+      // Cabeçalho
+      doc.text("Plano de Viagem", 10, 10);
+      doc.text("Velocidade: " + vel.toFixed(1) + " nós", 10, 16);
+      doc.text("Distância Total: " + totalDist.toFixed(2) + " MN", 10, 22);
+      doc.text("ETD: " + etd.toLocaleString('pt-BR'), 10, 28);
+      doc.text("ETA: " + etaFinalStr, 10, 34);
+
+      // Tabela
+      const startY = 40;
+      const rowHeight = 6;
+      const colX = [10, 20, 55, 90, 125, 150, 170];
+      const headers = ["#", "Nome", "Latitude", "Longitude", "Dist (MN)", "Rumo (°)", "ETA"];
+      for (let i = 0; i < headers.length; i++) {
+        doc.text(headers[i], colX[i], startY);
+      }
+
+      rows.forEach((row, idx) => {
+        const y = startY + rowHeight * (idx + 1);
+        row.forEach((cell, j) => {
+          doc.text(String(cell), colX[j], y);
+        });
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const imgWidth = pageWidth - 20;
+      const imgHeight = imgWidth * canvas.height / canvas.width;
+      const yOffset = startY + rowHeight * (rows.length + 2);
+      doc.addImage(canvas.toDataURL("image/png"), "PNG", 10, yOffset, imgWidth, imgHeight);
+      
+            // Buscar alertas NAVAREA/SAR carregados no mapa
+            fetch('/alertas').then(r => r.json()).then(alertas => {
+              const rota = waypoints.map(w => [w.lat, w.lon]);
+              const proximos = alertasProximosDaRota(alertas, rota, 5);
+
+              doc.addPage();
+              doc.setFontSize(12);
+              doc.text("Alertas NAVAREA/SAR até 5 MN da rota", 10, 10);
+              doc.setFontSize(10);
+              if (proximos.length === 0) {
+                doc.text("Nenhum alerta próximo da rota.", 10, 20);
+              } else {
+                let y = 20;
+                proximos.forEach((a, i) => {
+                  const texto = (a.numero ? a.numero + " - " : "") + (a.textoPT || a.texto || "").substring(0, 400);
+                  const linhas = doc.splitTextToSize(texto, 180);
+                  doc.text(linhas, 10, y);
+                  y += linhas.length * 5 + 4;
+                  if (y > 270) {
+                    doc.addPage();
+                    y = 20;
+                  }
+                });
+              }
+              doc.save("plano_viagem.pdf");
+            });
+            
+    });
+  }, 2000);
+}
+</script>
+<script>
+let alertasLayer = L.layerGroup().addTo(mapa);
+
+function desenharAlertas(alertas) {
+  alertasLayer.clearLayers();
+  alertas.forEach(alerta => {
+    if (alerta.pontos && alerta.pontos.length >= 3) {
+      const latlngs = alerta.pontos.map(p => [p[0], p[1]]);
+      const poly = L.polygon(latlngs, { color: 'red', fillOpacity: 0.2 }).addTo(alertasLayer);
+      poly.bindPopup(`<b>Alerta ${alerta.numero || ''}</b><br>${alerta.texto}`);
+    } else if (alerta.centro) {
+      const marker = L.marker([alerta.centro[0], alerta.centro[1]], {
+        icon: L.icon({
+          iconUrl: 'https://cdn-icons-png.flaticon.com/512/463/463612.png',
+          iconSize: [24, 24],
+          iconAnchor: [12, 24],
+          popupAnchor: [0, -24]
+        })
+      }).addTo(alertasLayer);
+      marker.bindPopup(`<b>Alerta ${alerta.numero || ''}</b><br>${alerta.texto}`);
+    }
+  });
+}
+
+function atualizarAlertas() {
+  fetch('/atualizar')
+    .then(r => r.json())
+    .then(alertas => {
+      desenharAlertas(alertas);
+      alert(`Atualizado com sucesso. ${alertas.length} alertas carregados.`);
+    })
+    .catch(err => {
+      alert('Erro ao atualizar os alertas.');
+      console.error(err);
+    });
+}
+
+// Auto carregamento ao iniciar
+window.addEventListener("load", () => {
+  fetch('/alertas')
+    .then(r => r.json())
+    .then(dados => {
+      desenharAlertas(dados);
+    });
+});
+</script>
+<script>
+function calcularDistanciaNM(lat1, lon1, lat2, lon2) {
+  const R = 6371; // km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return (R * c) / 1.852; // milhas náuticas
+}
+
+function alertasProximosDaRota(alertas, rota, limiteMN = 5) {
+  const proximos = [];
+
+  alertas.forEach(alerta => {
+    const pontos = alerta.pontos || (alerta.centro ? [alerta.centro] : []);
+    pontos.forEach(ponto => {
+      rota.forEach((coord, i) => {
+        if (i === 0) return;
+        const p1 = rota[i - 1], p2 = coord;
+        const d1 = calcularDistanciaNM(ponto[0], ponto[1], p1[0], p1[1]);
+        const d2 = calcularDistanciaNM(ponto[0], ponto[1], p2[0], p2[1]);
+        const media = Math.min(d1, d2);
+        if (media <= limiteMN) {
+          proximos.push(alerta);
+          return;
+        }
+      });
+    });
+  });
+
+  return proximos;
+}
+</script>
+
+<script>
+function limitarInput(id, maxLen, maxVal) {
+  const input = document.getElementById(id);
+  input.addEventListener('input', () => {
+    let val = input.value.replace(/[^0-9.]/g, '');
+
+    if (id.endsWith('M')) {
+      // Inserir ponto após dois dígitos, se ainda não houver
+      val = val.replace('.', '');
+      if (val.length > 2) {
+        val = val.slice(0, 2) + '.' + val.slice(2);
+      }
+      // Limitar a 6 caracteres totais (MM.mmm)
+      val = val.slice(0, 6);
+      if (parseFloat(val) > maxVal) {
+        val = maxVal.toFixed(3);
+      }
+    } else {
+      if (val.length > maxLen) val = val.slice(0, maxLen);
+      if (!isNaN(val) && parseFloat(val) > maxVal) val = maxVal.toString();
+    }
+
+    input.value = val;
+  });
+}
+window.addEventListener("load", () => {
+  limitarInput("latG", 2, 90);
+  limitarInput("latM", 6, 59.999);
+  limitarInput("lonG", 3, 180);
+  limitarInput("lonM", 6, 59.999);
+});
+</script>
+
+
+<script>
+function formatarGrausMinutos(coordenada, tipo) {
+  const hemisferio = tipo === 'lat' ? (coordenada >= 0 ? 'N' : 'S') : (coordenada >= 0 ? 'E' : 'W');
+  const absCoord = Math.abs(coordenada);
+  const graus = Math.floor(absCoord);
+  const minutos = ((absCoord - graus) * 60).toFixed(3);
+  return `${graus.toString().padStart(2, '0')}° ${minutos.padStart(6, '0')}' ${hemisferio}`;
+}
+
+mapa.on('mousemove', function(e) {
+  const lat = formatarGrausMinutos(e.latlng.lat, 'lat');
+  const lon = formatarGrausMinutos(e.latlng.lng, 'lon');
+  document.getElementById('coordenadasMouse').innerText = `Lat: ${lat} | Lon: ${lon}`;
+});
+</script>
+
+
+<script>
+let criandoDerrota = false;
+
+window.addEventListener("load", () => {
+  const btnCriar = document.getElementById("criarDerrotaBtn");
+  const btnLimpar = document.getElementById("limparDerrotaBtn");
+
+  if (!btnCriar || !btnLimpar || typeof mapa === 'undefined') {
+    console.error("Elementos ou mapa não disponíveis.");
+    return;
+  }
+
+  btnCriar.addEventListener("click", () => {
+    criandoDerrota = true;
+    mapa.getContainer().style.cursor = "crosshair";
+    btnCriar.style.backgroundColor = "#1e3a8a";
+    console.log("Modo Criar Derrota ativado");
+  });
+
+  btnLimpar.addEventListener("click", () => {
+    criandoDerrota = false;
+    mapa.getContainer().style.cursor = "";
+    btnCriar.style.backgroundColor = "#2563eb";
+    if (typeof waypoints !== 'undefined') {
+      waypoints.length = 0;
+      if (typeof atualizarTabela === 'function') atualizarTabela();
+      if (typeof desenharRota === 'function') desenharRota();
+      if (typeof calcularETA === 'function') calcularETA();
+    }
+    console.log("Derrota limpa");
+  });
+
+  mapa.on("click", (e) => {
+    if (!criandoDerrota || typeof waypoints === 'undefined') return;
+
+    console.log("Clique no mapa detectado");
+
+    const lat = e.latlng.lat;
+    const lon = e.latlng.lng;
+
+    function paraGrausMinutos(coord, tipo) {
+      const abs = Math.abs(coord);
+      const graus = Math.floor(abs);
+      const minutos = ((abs - graus) * 60).toFixed(3);
+      const hemisferio = tipo === 'lat' ? (coord >= 0 ? 'N' : 'S') : (coord >= 0 ? 'E' : 'W');
+      return { graus, minutos, hemisferio };
+    }
+
+    const latObj = paraGrausMinutos(lat, 'lat');
+    const lonObj = paraGrausMinutos(lon, 'lon');
+
+    const nome = `WP ${waypoints.length + 1}`;
+    const latStr = \`\${String(latObj.graus).padStart(2, '0')}º \${latObj.minutos.padStart(6, '0')}' \${latObj.hemisferio}\`;
+    const lonStr = \`\${String(lonObj.graus).padStart(3, '0')}º \${lonObj.minutos.padStart(6, '0')}' \${lonObj.hemisferio}\`;
+
+    waypoints.push({
+      nome: nome,
+      lat: lat,
+      lon: lon,
+      latStr: latStr,
+      lonStr: lonStr
+    });
+
+    if (typeof atualizarTabela === 'function') atualizarTabela();
+    if (typeof desenharRota === 'function') desenharRota();
+    if (typeof calcularETA === 'function') calcularETA();
+
+    console.log("Waypoint adicionado via mapa");
+  });
+});
+</script>
+
+
+<!-- Mostrar última atualização no rodapé -->
+<div id="ultimaAtualizacao" style="
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(255,255,255,0.9);
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #333;
+  z-index: 9999;
+  box-shadow: 0 0 5px rgba(0,0,0,0.1);
+">
+  Atualizando...
+</div>
+
+<script>
+function carregarUltimaAtualizacao() {
+  fetch('/ultima-atualizacao')
+    .then(r => r.text())
+    .then(txt => {
+      document.getElementById("ultimaAtualizacao").innerText = "📅 Última atualização: " + txt;
+    })
+    .catch(err => {
+      console.error("Erro ao carregar data de atualização:", err);
+      document.getElementById("ultimaAtualizacao").innerText = "Erro ao carregar atualização";
+    });
+
+  fetch('/nome-json')
+    .then(r => r.text())
+    .then(nome => {
+      document.getElementById("ultimaAtualizacao").innerText += "\n📁 Arquivo: " + nome;
+    })
+    .catch(err => {
+      console.error("Erro ao carregar nome do json:", err);
+    });
+}
+
+window.addEventListener("load", carregarUltimaAtualizacao);
+</script>
+
+</body>
+</html>
