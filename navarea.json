@@ -1,8 +1,0 @@
-cd caminho/para/navarea-web  # Exemplo: cd ~/Downloads/navarea-web
-git init
-git add .
-git commit -m "primeiro commit"
-git branch -M main
-git remote add origin https://github.com/SEU_USUARIO/navarea-monitor.git
-git push -u origin main
-[]
