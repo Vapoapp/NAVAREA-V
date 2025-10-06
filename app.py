@@ -80,7 +80,7 @@ def baixar_json():
     with open(LOCAL_JSON_PATH, "w", encoding="utf-8") as f:
         json.dump(raw, f, ensure_ascii=False)
     qtd = len(raw.get("features", []))
-    return jsonify({"salvo_em": "/" + LOCAL_JSON_PATH.replace("\", "/"), "features": qtd})
+    return jsonify({"salvo_em": "/" + LOCAL_JSON_PATH.replace("\\", "/"), "features": qtd})
 
 @app.route("/static/<path:filename>")
 def servir_static(filename):
