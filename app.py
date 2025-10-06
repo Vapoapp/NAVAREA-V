@@ -1,105 +1,90 @@
-
-from flask import Flask, render_template, jsonify
-import requests
-import os
-import json
-import re
-from datetime import datetime
+from flask import Flask, jsonify, send_from_directory
+import os, json
+import cloudscraper
 from bs4 import BeautifulSoup
-import traceback
 
 app = Flask(__name__)
-DATA_FOLDER = 'static'
-LOCAL_JSON = os.path.join(DATA_FOLDER, 'navarea.json')
-UPDATE_LOG = os.path.join(DATA_FOLDER, 'ultima_atualizacao.txt')
 
-def parse_geometry(alerta):
-    geometry = alerta.get("geometry", "")
-    texto = alerta.get("textoPT", "") or alerta.get("texto", "")
-    resultado = {
-        "numero": alerta.get("numero", ""),
-        "texto": texto.strip()
-    }
-    if "SAR" in resultado["numero"].upper() or "SAR" in resultado["texto"].upper():
-        resultado["tipo"] = "SAR"
-    else:
-        resultado["tipo"] = "NAVAREA"
+NAVY_PAGE = "https://www.marinha.mil.br/chm/dados-do-segnav-aviso-radio-nautico-tela/avisos-radio-nauticos-e-sar"
+LOCAL_JSON_PATH = os.path.join("static", "alertas.json")
 
-    # Extrair coordenadas de geometry
-    matches = re.findall(r'LatLng\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)', geometry)
-    coords = [[float(lat), float(lon)] for lat, lon in matches]
+scraper = cloudscraper.create_scraper(browser={"browser": "firefox", "platform": "windows", "mobile": False})
 
-    if "Polygon" in geometry or ("AREA LIMITADA" in texto.upper() and len(coords) >= 3):
-        resultado["pontos"] = coords
-    elif "Polyline" in geometry or ("ENTRE" in texto.upper() and len(coords) == 2):
-        resultado["pontos"] = coords
-    elif coords:
-        resultado["centro"] = coords[0]
+def _find_latest_json_url():
+    r = scraper.get(NAVY_PAGE, timeout=30)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+    for a in soup.find_all("a", href=True):
+        if a["href"].lower().endswith(".json"):
+            url = a["href"]
+            if not url.startswith("http"):
+                url = "https://www.marinha.mil.br" + url
+            return url
+    raise RuntimeError("Link .json não encontrado na página da Marinha.")
 
-    return resultado
+def _download_raw_json():
+    json_url = _find_latest_json_url()
+    r = scraper.get(json_url, timeout=40)
+    r.raise_for_status()
+    return r.json()
 
-def baixar_json_mais_recente():
-    url_base = "https://www.marinha.mil.br/chm/dados-do-segnav-aviso-radio-nautico-tela/avisos-radio-nauticos-e-sar"
-    try:
-        res = requests.get(url_base, timeout=10)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        link = soup.find('a', href=True, string=lambda s: s and s.endswith('.json'))
-        if not link:
-            print("Nenhum link .json encontrado na página.")
-            return False
-        json_url = "https://www.marinha.mil.br" + link['href']
-        print("Baixando JSON:", json_url)
-        json_data = requests.get(json_url, timeout=10).json()
+def _transform(raw):
+    alertas = []
+    for feat in raw.get("features", []):
+        props = feat.get("properties", {}) or {}
+        geom = feat.get("geometry", {}) or {}
+        coords = geom.get("coordinates")
+        alerta = {
+            "numero": props.get("numero"),
+            "texto": props.get("textoPT") or props.get("texto"),
+            "tipo": props.get("tipo") or props.get("Tipo") or "",
+            "pontos": None,
+            "centro": None,
+        }
+        gtype = (geom.get("type") or "").lower()
+        if gtype == "polygon" and coords:
+            ring = coords[0]
+            alerta["pontos"] = [[float(y), float(x)] for x, y in ring]
+        elif gtype == "linestring" and coords:
+            alerta["pontos"] = [[float(y), float(x)] for x, y in coords]
+        elif gtype == "point" and coords:
+            alerta["centro"] = [float(coords[1]), float(coords[0])]
+        alertas.append(alerta)
+    return alertas
 
-        dados = json_data.get("avisos", [])  # lista de alertas
-        os.makedirs(DATA_FOLDER, exist_ok=True)
-        with open(LOCAL_JSON, 'w', encoding='utf-8') as f:
-            json.dump(dados, f, ensure_ascii=False, indent=2)
-        with open(UPDATE_LOG, 'w', encoding='utf-8') as f:
-            f.write(datetime.now().strftime('%d/%m/%Y %H:%M:%S'))
-        return True
-    except Exception as e:
-        print("Erro ao baixar JSON:", e)
-        traceback.print_exc()
-        return False
-
-@app.route('/')
+@app.route("/")
 def index():
-    return render_template('index.html')
+    return send_from_directory(".", "index.html")
 
-@app.route('/alertas')
+@app.route("/alertas")
 def alertas():
-    if not os.path.exists(LOCAL_JSON):
-        baixar_json_mais_recente()
     try:
-        with open(LOCAL_JSON, 'r', encoding='utf-8') as f:
-            dados = json.load(f)
-            processados = [parse_geometry(a) for a in dados]
-            return jsonify(processados)
+        raw = _download_raw_json()
+        return jsonify(_transform(raw))
     except Exception as e:
-        print("Erro ao carregar alertas:", e)
-        traceback.print_exc()
-        return jsonify([])
+        if os.path.exists(LOCAL_JSON_PATH):
+            with open(LOCAL_JSON_PATH, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            return jsonify(_transform(raw))
+        return jsonify({"erro": str(e)}), 500
 
-@app.route('/atualizar')
-def atualizar():
-    sucesso = baixar_json_mais_recente()
-    if not sucesso:
-        return jsonify([])
+@app.route("/alertas_raw")
+def alertas_raw():
+    raw = _download_raw_json()
+    return jsonify(raw)
 
-    try:
-        with open(LOCAL_JSON, 'r', encoding='utf-8') as f:
-            dados = json.load(f)
-            processados = [parse_geometry(a) for a in dados]
-            return jsonify(processados)
-    except Exception as e:
-        print("Erro ao atualizar:", e)
-        traceback.print_exc()
-        return jsonify([])
+@app.route("/baixar-json")
+def baixar_json():
+    raw = _download_raw_json()
+    os.makedirs(os.path.dirname(LOCAL_JSON_PATH), exist_ok=True)
+    with open(LOCAL_JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(raw, f, ensure_ascii=False)
+    qtd = len(raw.get("features", []))
+    return jsonify({"salvo_em": "/" + LOCAL_JSON_PATH.replace("\", "/"), "features": qtd})
 
-@app.route('/ultima-atualizacao')
-def ultima_atualizacao():
-    if os.path.exists(UPDATE_LOG):
-        with open(UPDATE_LOG, 'r', encoding='utf-8') as f:
-            return f.read()
-    return "Não disponível"
+@app.route("/static/<path:filename>")
+def servir_static(filename):
+    return send_from_directory("static", filename)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
